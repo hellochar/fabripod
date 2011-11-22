@@ -16,6 +16,7 @@ import collection.SeqProxy
 import toxi.geom.{Spline3D, Vec3D}
 import scala.collection.JavaConversions._
 import controlP5.{Controller, ControllerInterface, Textfield, ControlP5}
+import java.text.DecimalFormat
 
 class Applet extends MyPApplet { app =>
   import PApplet._; import PConstants._;
@@ -42,66 +43,23 @@ class Applet extends MyPApplet { app =>
       g.box(w, w, w)
     }
   }
-  case object ClearSnaps extends Snaps("Clear", color(128, 40))
+  case object ClearSnaps extends Snaps("Clear", color(128, 128))
   case object WhiteSnaps extends Snaps("White", color(255))
   case object BlackSnaps extends Snaps("Black", color(0))
   case object Grommets extends Fastener("Grommets") {
 
+    private val numSteps = 24;
+    private val points:Seq[Vec2] = for(theta <- Range.Double(0, TWO_PI, TWO_PI/numSteps)) yield Vec2.fromPolar(1, theta.toFloat)
+
     def draw(g: PGraphics3D) {
-      val DETAIL = .1
-      // Create a ring by drawing an outer cicle clockwise and an inner circle anticlockwise.
-      def ring(cx1:Float, cy1:Float, r1:Float, cx2:Float, cy2:Float, r2:Float)
-      {
-        g.beginShape();
-         buildCircle(cx1,cy1,r1,true);
-         buildCircle(cx2,cy2,r2,false);
-        g.endShape();
+      g.beginShape(TRIANGLE_STRIP);
+      for(v <- points) {
+        g.vertex(2*v.x, 2*v.y)
+        g.vertex(v.x, v.y);
       }
-
-      // Creates a circle using spline curves. Can be drawn either clockwise
-      // which creates a solid circle, or anticlockwise that creates a hole.
-      def buildCircle(cx:Float, cy:Float, r:Float, isClockwise:Boolean)
-      {
-        val numSteps = 10;
-        val inc = TWO_PI/numSteps;
-
-        if (isClockwise)
-        {
-          // First control point should be penultimate point on circle.
-          g.curveVertex(cx+r*cos(-inc),cy+r*sin(-inc));
-
-          for(theta <- Range.Double(0, TWO_PI-DETAIL, inc).map(_.toFloat))
-          {
-            g.curveVertex(cx+r*cos(theta),cy+r*sin(theta));
-          }
-          g.curveVertex(cx+r,cy);
-
-          // Last control point should be second point on circle.
-          g.curveVertex(cx+r*cos(inc),cy+r*sin(inc));
-
-          // Move to start position to keep curves in circle.
-          g.vertex(cx+r,cy);
-        }
-        else
-        {
-          // Move to start position to keep curves in circle.
-          g.vertex(cx+r,cy);
-
-          // First control point should be penultimate point on circle.
-          g.curveVertex(cx+r*cos(inc),cy+r*sin(inc));
-
-          for(theta <- Range.Double(TWO_PI, DETAIL, -inc).map(_.toFloat)) {
-            g.curveVertex(cx+r*cos(theta),cy+r*sin(theta));
-          }
-          g.curveVertex(cx+r,cy);
-
-          // Last control point should be second point on circle.
-          g.curveVertex(cx+r*cos(TWO_PI-inc),cy+r*sin(TWO_PI -inc));
-        }
-      }
-
-      fill(255); stroke(255);
-      ring(0, 0, 2, 0, 0, 1);
+      g.vertex(2*points.head.x, 2*points.head.y)
+      g.vertex(points.head.x, points.head.y)
+      g.endShape();
     }
   }
   val ALL_FASTENERS = List(ClearSnaps, WhiteSnaps, BlackSnaps, Grommets)
@@ -140,8 +98,10 @@ class Applet extends MyPApplet { app =>
 
     val hardware = makeButtons("Hardware", height * .8f, "6' Cord - White", "12' Cord - White", "24' Stand", "60' Stand", "None - I'll get my own")
 
-    def updateInfo() {
+    def validifyState() {
       infoUpdater.update();
+      if(materials.value() < 0) materials.activate(0);
+      if(fasteners.value() < 0) fasteners.activate(0);
     }
     private object infoUpdater {
       var infos:Map[Textfield, () => String] = Map()
@@ -162,23 +122,46 @@ class Applet extends MyPApplet { app =>
       }}
     }
 
-    val specs = makeInfos("Specs", height * .3f,
+    private val formatter = new DecimalFormat("$#####.00")
+    private def toCost(s:Float) = formatter.format(s)
+
+    val specs = makeInfos("Specs", height * .2f,
       ("Height", () => calculateHeight()+" Inches"),
       ("Width", () => calculateWidth()+" Inches"));
 
-    /**
-     * Number of modules in one vertical half-plane.
-     */
+    val costs = makeInfos("Fabrication Costs", height * .4f,
+      ("Material", () => toCost(materialCost)),
+      ("Cutting", () => toCost(cuttingCost)),
+      ("Hardware", () => toCost(hardwareCost)),
+      ("Fasteners", () => toCost(fastenersCost)),
+      ("TOTAL     ", () => toCost(totalCost))
+    )
+
+
+    def materialCost = 40.4542f
+    def cuttingCost = 200.1231f
+    def hardwareCost = 20.12f
+    def fastenersCost = 6f
+    def totalCost = materialCost + cuttingCost + hardwareCost + fastenersCost
+
+    val makeItButton = {
+      val button = addButton("MAKE IT!", 0, width-170, (height * .7f).toInt, 160, 100)
+      button;
+    }
+
+      /**
+       * Number of modules in one vertical half-plane.
+       */
       def NUM_LAT = vertDiv.getValue.toInt
 
-    /**
-     * Number of modules in one horizontal plane.
-     */
+      /**
+       * Number of modules in one horizontal plane.
+       */
       def NUM_LON = horizDiv.getValue.toInt
       def SCALE_XY = xyScale.getValue
       def SCALE_Z = zScale.getValue
       def TWIST = twist.getValue
-//      def PROTRUDE = protrude.getValue
+      //      def PROTRUDE = protrude.getValue
       def MATERIAL = ALL_MATERIALS(materials.value.toInt)
       def FASTENER = ALL_FASTENERS(fasteners.value.toInt)
 
@@ -204,6 +187,7 @@ class Applet extends MyPApplet { app =>
        * @param lon ranges from [0, NUM_LON), where 0 is the +X axis and we are in a right-handed coordinate system.
        */
       def toSphere(lat:Int, lon:Int):Vec3 = toSphere(map(lat, -1, NUM_LAT+1, -PI/2, PI/2), map(lon, 0, NUM_LON, 0, TWO_PI))
+//    }
 //    }
   }
 
@@ -250,6 +234,9 @@ class Applet extends MyPApplet { app =>
 
   override def draw() {
     println("Frame "+frameCount+"-----------------")
+    cp5.validifyState()
+
+
     background(0);
 
     //begin 3d drawing
@@ -259,7 +246,6 @@ class Applet extends MyPApplet { app =>
 
     image(buffer, 0, 0);
 
-    cp5.updateInfo()
     drawGui();
     println("End frame: "+frameRate)
   }
