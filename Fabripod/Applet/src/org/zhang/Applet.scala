@@ -25,14 +25,22 @@ class Applet extends MyPApplet { app =>
 
   import cp5.{NUM_LAT, NUM_LON, SCALE_XY, SCALE_Z, PROJECTION, MATERIAL, /*FASTENER, */toSphere}
 
-  case class Material(name:String, color:Int)
-  case object BirchVeneer extends Material("Birch Veneer", 0xFFEAA400)
-  case object CherryVeneer extends Material("Cherry Veneer", 0xFFFF9C42)
-  case object RicePaper extends Material("Rice Paper", 0xFFF8E9FC)
-  case object WhitePlastic extends Material("White Plastic", 0xFFFFFFFF)
-  case object PinkPlastic extends Material("Pink Plastic", 0xFFFE67EB)
-  case object OrangePlastic extends Material("Orange Plastic", 0xFFFF6600)
+  case class Material(name:String, color:Int, centsPerLinearInch:Int)
+  case object BirchVeneer extends Material("Birch Veneer", 0xFFEAA400, 35)
+  case object CherryVeneer extends Material("Cherry Veneer", 0xFFFF9C42, 35)
+  case object RicePaper extends Material("Rice Paper", 0xFFF8E9FC, 15)
+  case object WhitePlastic extends Material("White Plastic", 0xFFFFFFFF, 15)
+  case object PinkPlastic extends Material("Pink Plastic", 0xFFFE67EB, 15)
+  case object OrangePlastic extends Material("Orange Plastic", 0xFFFF6600, 15)
   val ALL_MATERIALS = List(BirchVeneer, CherryVeneer, RicePaper, WhitePlastic, PinkPlastic, OrangePlastic)//.map(x => (x.name, x)).toMap
+
+  case class Hardware(name:String, cents:Int)
+  case object CordWhite6 extends Hardware("6' Cord - White", 10*100)
+  case object CordWhite12 extends Hardware("12' Cord - White", 10*100)
+  case object Stand24 extends Hardware("24' Stand", 25 * 100)
+  case object Stand60 extends Hardware("60' Stand", 25 * 100)
+  case object NoHardware extends Hardware("None - I'll get my own", 0)
+  val ALL_HARDWARE = List(CordWhite6, CordWhite12, Stand24, Stand60, NoHardware)
 
   /*
   abstract class Fastener(val name:String) {
@@ -101,11 +109,16 @@ class Applet extends MyPApplet { app =>
 
 //    val fasteners = makeButtons("Fasteners", height * .6f, ALL_FASTENERS.map(_.name):_*)
 
-    val hardware = makeButtons("Hardware", height * .8f, "6' Cord - White", "12' Cord - White", "24' Stand", "60' Stand", "None - I'll get my own")
+    val hardware = makeButtons("Hardware", height * .8f, ALL_HARDWARE.map(_.name):_*)
+    //makeButtons("Hardware", height * .8f, "6' Cord - White", "12' Cord - White", "24' Stand", "60' Stand", "None - I'll get my own")
 
     def validifyState() {
       infoUpdater.update();
+
+
+      //this ensures that at least one "materials" option is always checked.
       if(materials.value() < 0) materials.activate(0);
+      if(hardware.value() < 0) hardware.activate(0);
 //      if(fasteners.value() < 0) fasteners.activate(0);
     }
     private object infoUpdater {
@@ -122,13 +135,17 @@ class Applet extends MyPApplet { app =>
         val myLabel = addTextlabel(name+"label", name, width - 160, myY)
         val field = addTextfield("", width - 110, myY, 100, 10);
         field.setUserInteraction(false);
-        field.setValue(method());
+        //calling it at the beginning will cause a self-dependency sometimes
+//        field.setValue(method());
         infoUpdater.infos += field -> method
       }}
     }
 
     private val formatter = new DecimalFormat("$#####.00")
-    private def toCost(s:Float) = formatter.format(s)
+    /**
+     * Converts USD money expressed in cents into a string representation of the cost.
+     */
+    private def toCost(cents:Float) = formatter.format(cents / 100) //be careful with precision
 
     val specs = makeInfos("Specs", height * .2f,
       ("Height", () => calculateHeight()+" Inches"),
@@ -137,16 +154,34 @@ class Applet extends MyPApplet { app =>
     val costs = makeInfos("Fabrication Costs", height * .4f,
       ("Material", () => toCost(materialCost)),
       ("Cutting", () => toCost(cuttingCost)),
-      ("Hardware", () => toCost(hardwareCost)),
+      ("Hardware", () => toCost(hardwareCost))
 //      ("Fasteners", () => toCost(fastenersCost)),
-      ("TOTAL     ", () => toCost(totalCost))
+//      ("TOTAL     ", () => toCost(totalCost))
     )
 
 
-    def materialCost = 40.4542f
-    def cuttingCost = 200.1231f
-    def hardwareCost = 20.12f
+    def materialCost = 40.4542f * 100
+
+    /**
+     * Returns the cost of cutting the lamp, in cents. (e.g. cuttingCost = 1 => 1 cent)
+     */
+    def cuttingCost = {
+      /**
+       * The total cutting length of the whole lamp, in inches
+       */
+      val totalInches = modules.map(_.splineLength).sum
+      val totalCost = totalInches * MATERIAL.centsPerLinearInch
+      totalCost
+    }
+
+    /**
+     * Returns the cost of the hardware, in cents.
+     */
+    def hardwareCost = HARDWARE.cents
 //    def fastenersCost = 6f
+    /**
+     * Returns the total cost of the lamp, in cents.
+     */
     def totalCost = materialCost + cuttingCost + hardwareCost /*+ fastenersCost*/
 
     val makeItButton = {
@@ -158,9 +193,10 @@ class Applet extends MyPApplet { app =>
     def NUM_LON = horizDiv.getValue.toInt
     def SCALE_XY = xyScale.getValue
     def SCALE_Z = zScale.getValue
-//      def TWIST = twist.getValue
     def PROJECTION = projection.getValue
+
     def MATERIAL = ALL_MATERIALS(materials.value.toInt)
+    def HARDWARE = ALL_HARDWARE(hardware.value.toInt)
 //    def FASTENER = ALL_FASTENERS(fasteners.value.toInt)
 
 
@@ -184,30 +220,38 @@ class Applet extends MyPApplet { app =>
   }
 
 
-    implicit def d2f(d:Double) = d.toFloat
-    val spline1 = new Spline3D(Array(
-      new Vec3D(.5, 0, 0),
-      new Vec3D(1, .5, 0),
-      new Vec3D(.5, 1, 0),
-      new Vec3D(0, .5, 0),
-      new Vec3D(.5, 0, 0)
-  //      new Vec3D(),
-  //      new Vec3D(.1f, .8f, .3f),
-  //      new Vec3D(1, 1, .5f),
-  //      new Vec3D(.8f, .1f, .3f),
-  //      new Vec3D()
-    ))
-    private def sample(s:Spline3D) = collection.JavaConversions.asScalaBuffer(s.computeVertices(20)).toSeq.map(x => Vec3(x.x, x.y, x.z))
-    private val s1Sampled = sample(spline1)
+  implicit def d2f(d:Double) = d.toFloat
+  val spline1 = new Spline3D(Array(
+    new Vec3D(.5, 0, 0),
+    new Vec3D(1, .5, 0),
+    new Vec3D(.5, 1, 0),
+    new Vec3D(0, .5, 0),
+    new Vec3D(.5, 0, 0)
+//      new Vec3D(),
+//      new Vec3D(.1f, .8f, .3f),
+//      new Vec3D(1, 1, .5f),
+//      new Vec3D(.8f, .1f, .3f),
+//      new Vec3D()
+  ))
+  private def sample(s:Spline3D) = collection.JavaConversions.asScalaBuffer(s.computeVertices(20)).toSeq.map(x => Vec3(x.x, x.y, x.z))
 
-    val spline2 = new Spline3D(Array(
-      new Vec3D(.5, .25, .1),
-      new Vec3D(.75, .5, .1),
-      new Vec3D(.5, .75, .1),
-      new Vec3D(.25, .5, .1),
-      new Vec3D(.5, .25, .1)
-    ))
-    private val s2Sampled = sample(spline2)
+  /**
+   * A set of sampled points of the first spline, in local coordinates.
+   */
+  private val s1Sampled = sample(spline1)
+
+  val spline2 = new Spline3D(Array(
+    new Vec3D(.5, .25, .1),
+    new Vec3D(.75, .5, .1),
+    new Vec3D(.5, .75, .1),
+    new Vec3D(.25, .5, .1),
+    new Vec3D(.5, .25, .1)
+  ))
+
+  /**
+   * A set of sampled points of the second spline, in local coordinates.
+   */
+  private val s2Sampled = sample(spline2)
 
 //  def offHoriz = TWO_PI/DIV_HORIZ;
 //  def offVert = PI/DIV_VERT;
@@ -218,7 +262,7 @@ class Applet extends MyPApplet { app =>
     toSphere(lat+1, lon+1),
     toSphere(lat+1, lon));
 
-  def tabs = for(lat <- 0 to NUM_LAT; lon <- 0 until NUM_LON) yield Tab(toSphere(lat, lon)) //we want to go all the way TO NUM_LAT to encompass the very top of the top strip
+//  def tabs = for(lat <- 0 to NUM_LAT; lon <- 0 until NUM_LON) yield Tab(toSphere(lat, lon)) //we want to go all the way TO NUM_LAT to encompass the very top of the top strip
 
   lazy val buffer = createGraphics(width, height, P3D).asInstanceOf[PGraphics3D]
   object scene extends Scene(this, buffer) {
@@ -227,6 +271,9 @@ class Applet extends MyPApplet { app =>
     setGridIsDrawn(false);
   }
 
+  /** Consider the "Real world" length, measured in units of inches. We convert between global coordinates and real world coordinates
+   *  by simply scaling the coordinate's x/y by SCALE_XY and the coordiante's z by SCALE_Z.
+   */
   private def glob2RealWorldMat = {
     val m = new PMatrix3D();
     m.scale(SCALE_XY, SCALE_XY, SCALE_Z);
@@ -283,7 +330,7 @@ class Applet extends MyPApplet { app =>
       buffer.popMatrix();
 
 
-      tabs foreach (_.draw(buffer))
+//      tabs foreach (_.draw(buffer))
 
       scene.endDraw();
       buffer.endDraw()
@@ -310,70 +357,55 @@ class Applet extends MyPApplet { app =>
       import g._
       def v3(p:Vec3) = g.vertex(p.x, p.y, p.z)
 
-      //draw spline1
-//      val pts = spline1.computeVertices(20).map(loc2Global(_))
-//      if(!(keyPressed && key == 'x')) {
-        /**
-         * At every point in the outer spline is paired with a point on the inner spline. There is also a "neighbor" point
-         * for every point. Use the grommel algorithm to draw the surface.
-         */
-//      g.beginShape(TRIANGLE_FAN);
-//      s1Sampled.map(m.loc2Global(_)).foreach(v3 _); g.endShape();
-//      g.beginShape(TRIANGLE_FAN); s2Sampled.map(m.loc2Global(_)).foreach(x => g.vertex(x.x, x.y, x.z)); g.endShape();
+      def drawSplines() {
+        g.beginShape(TRIANGLE_FAN); s1Sampled.map(loc2Global(_)).foreach(v3 _); g.endShape();
+        g.beginShape(TRIANGLE_FAN); s2Sampled.map(loc2Global(_)).foreach(v3 _); g.endShape();
+      }
+
+      /**
+       * At every point in the outer spline is paired with a point on the inner spline. There is also a "neighbor" point
+       * for every point. Use the grommel algorithm to draw the surface.
+       */
       g.beginShape(TRIANGLE_STRIP);
       loc2Global(s1Sampled).zip(loc2Global(s2Sampled)).foreach{ case (pa, pb) => {
         v3(pa); v3(pb);
       }}
       g.endShape();
-//        g.beginShape(TRIANGLE_FAN); pts foreach (v3 _); g.endShape();
-//      }
-//      g.strokeWeight(1);
 
-//      g.textSize(12f / SCALE_XY)
-//      def txt(s:String, p:Vec3) = g.text(s, p.x, p.y, p.z);
+      def drawFace() {
+        g.stroke(0); g.fill(255);
+        g.beginShape(QUADS);
+        g.fill(255, 0, 0)
+        v3(p1);
 
+        g.fill(0, 255, 0)
+        v3(p2);
 
-      //draw simple face
-//      g.stroke(0); g.fill(255);
-//      g.beginShape(QUADS);
-//      g.fill(255, 0, 0)
-//      v3(p1);
-//
-//      g.fill(0, 255, 0)
-//      v3(p2);
-//
-//      g.fill(0, 0, 255)
-//      v3(p3);
-//
-//      g.fill(255, 255, 0)
-//      v3(p4);
-//      g.endShape(CLOSE);
+        g.fill(0, 0, 255)
+        v3(p3);
 
-//      g.fill(255);
-//      this.zip(List(1,2,3,4)).foreach{ case (v, s) => txt(s.toString, v * (1 + s * .2f))}
-
-//      def sphere(loc:Vec3) {
-//        g.pushMatrix();
-//        g.translate(loc.x, loc.y, loc.z);
-//        g.sphereDetail(12);
-//        g.sphere(.1f);
-//        g.popMatrix();
-//      }
-//      g.noStroke();
-//      g.fill(255, 0, 0);
-//      val sLoc = loc2Global(Vec3(mouseX * 1f / g.width, mouseY * 1f / g.height, 0))
-//      if(keyPressed && key == 'z')
-//        sphere(sLoc)
-
-//      if(!(sLoc.mag < 3))
-//        println("sLoc at "+sLoc+"!")
-
-
-      //draw normal
-//      g.stroke(0); g.strokeWeight(4)
-//      g.line(midpoint.x, midpoint.y, midpoint.z, midpoint.x + norm.x, midpoint.y+norm.y, midpoint.z + norm.z);
-
-
+        g.fill(255, 255, 0)
+        v3(p4);
+        g.endShape(CLOSE);
+      }
+      def drawMouseSphere() {
+        def sphere(loc:Vec3) {
+          g.pushMatrix();
+          g.translate(loc.x, loc.y, loc.z);
+          g.sphereDetail(12);
+          g.sphere(.1f);
+          g.popMatrix();
+        }
+        g.noStroke();
+        g.fill(255, 0, 0);
+        val sLoc = loc2Global(Vec3(mouseX * 1f / g.width, mouseY * 1f / g.height, 0))
+        if(keyPressed && key == 'z')
+          sphere(sLoc)
+      }
+      def drawNorm() {
+      g.stroke(0); g.strokeWeight(4)
+      g.line(midpoint.x, midpoint.y, midpoint.z, midpoint.x + norm.x, midpoint.y+norm.y, midpoint.z + norm.z);
+      }
       def ptCloud() {
         def pt(vv:Vec3) {
           val v = loc2Global(vv);
@@ -387,12 +419,17 @@ class Applet extends MyPApplet { app =>
     }
 
     /**
-     * Returns the length of the two splines making up this Module.
+     * Returns the length of the two splines making up this Module, in real world inches.
      */
-    def splineLength() {
-      //Consider the "Real world" length, measured in units of inches. We convert between global coordinates and real world coordinates
-      //by simply scaling the coordinate's x/y by SCALE_XY and the coordiante's z by SCALE_Z.
-      //
+    def splineLength = {
+      //Take spline1,
+      //  convert it into real world coordinates,
+      //    spline1's points are specified in local coordinates; first convert to global and then convert to real world
+      //  calculate its length
+      val s1RealWorld = glob2RealWorld(loc2Global(s1Sampled))
+      val s2RealWorld = glob2RealWorld(loc2Global(s2Sampled))
+
+      calculateLength(s1RealWorld) + calculateLength(s2RealWorld)
     }
 
     val self = Seq(p1, p2, p3, p4)
