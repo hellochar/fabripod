@@ -62,7 +62,7 @@ class Applet extends MyPApplet { app =>
   case object Grommets extends Fastener("Grommets") {
 
     private val numSteps = 24;
-    private val points:Seq[Vec2] = for(theta <- Range.Double(0, TWO_PI, TWO_PI/numSteps)) yield Vec2.fromPolar(.025f, theta.toFloat)
+    private val points:Seq[Vec2] = for(theta <- Range.Double(0, TWO_PI, TWO_PI/numSteps)) yield Vec2.fromPolar(.05f, theta.toFloat)
 
     def draw(g: PGraphics3D) {
 //      g.beginShape(TRIANGLE_STRIP);
@@ -78,11 +78,14 @@ class Applet extends MyPApplet { app =>
       g.endShape(CLOSE);
     }
   }
+  case object RectFasteners extends Fastener("Rects") {
+    def draw(g: PGraphics3D) {
+      g.rect(-.05, -.05, .1, .1)
+    }
+  }
   val ALL_FASTENERS = List(ClearSnaps, WhiteSnaps, BlackSnaps, Grommets)
 
-  val SAMPLE_NUM = 100
-
-  private abstract class Spline {
+  private sealed abstract class Spline {
 //    def start:Vec3
 //    def end:Vec3
     /**
@@ -102,7 +105,7 @@ class Applet extends MyPApplet { app =>
      * the end as the last entry, and some number of intermediary points (possibly zero) to help describe the
      * shape in more detail. The total length of the seq will be num.
      */
-    def sampled(num:Int):Seq[Vec3] = Range.Double(0, 1 + 1d / (num+2)+.001, 1d / (num+2)) map (point(_))
+    def sampled(num:Int):Seq[Vec3] = if(num < 2) sys.error("num is "+num+"!") else (0 to num-1) map (x => point(x * 1f / (num-1)))
   }
   private case class Line(start:Vec3, end:Vec3) extends Spline {
     def point(f:Float) = start + (end - start) * f
@@ -115,10 +118,10 @@ class Applet extends MyPApplet { app =>
 //    def sampled = Seq(start, end)
   }
 
-  /**
-   * Returns a Seq of lines going through the specified points; the seq will be of length (points.length - 1)
-   */
-  private def makeLines(points:Vec3*) = points.sliding(2).map(x => Line(x(0), x(1))).toSeq
+//  /**
+//   * Returns a Seq of lines going through the specified points; the seq will be of length (points.length - 1)
+//   */
+//  private def makeLines(points:Vec3*) = points.sliding(2).map(x => Line(x(0), x(1))).toSeq
 
   private case class BezierSpline(start:Vec3, cp1:Vec3, cp2:Vec3, end:Vec3) extends Spline {
     def seq = Seq(start, cp1, cp2, end)
@@ -177,69 +180,52 @@ class Applet extends MyPApplet { app =>
   private val upperRad = .2f
   private val zC = .2f
 
-  private val xC = .5f - upperRad
-  private val bezTall = .2f
-  private val bezTallIn = bezTall * xC / dist(0, 0, xC, zC)
-  private val bezTallUp = bezTall * zC / dist(0, 0, xC, zC)
-
-  private val segLen = .05f
-  private val bs1 = List(Vec3(segLen, 0, 0), Vec3(segLen, bezTallIn, bezTallUp), Vec3(1 - segLen, bezTallIn, bezTallUp), Vec3(1 - segLen, 0, 0));
-  private val bs2 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(1, 0); p.rotate(PI/2);   p}))
-  private val bs3 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(1, 1); p.rotate(PI);     p}))
-  private val bs4 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(0, 1); p.rotate(3*PI/2); p}))
-//  private val bs2 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(1, 0, 0); p.rotateZ(PI/2); p}))
-//  private val bs3 = bs1
-//  private val bs4 = bs1
-  private lazy val spline1 =
-    new PiecewiseSpline(
-      Line(Vec3(0, segLen, 0), Vec3(segLen, 0, 0)),
-      BezierSpline(bs1),
-      Line(Vec3(1 - segLen, 0, 0), Vec3(1, segLen, 0)),
-      BezierSpline(bs2),
-      Line(Vec3(1, 1 - segLen, 0), Vec3(1 - segLen, 1, 0)),
-      BezierSpline(bs3),
-      Line(Vec3(segLen, 1, 0), Vec3(0, 1 - segLen, 0)),
-      BezierSpline(bs4)
-//      makeLines(Vec3(), Vec3.X, Vec3(1, 1, 0), Vec3.Y, Vec3()):_*
-    )
-//    new Spline3D(Array(
-//      new Vec3D(.5, 0, 0),
-//      new Vec3D(1, .5, 0),
-//      new Vec3D(.5, 1, 0),
-//      new Vec3D(0, .5, 0),
-//      new Vec3D(.5, 0, 0)
-//    ))
-
-  private lazy val spline2 =
-//    new BezierSpline(Vec3(0, .8, 0), Vec3(0, 1.5, .1), Vec3(1, 1.5, 1), Vec3(1, .8, 0))
-  new PiecewiseSpline(
-    new ArcSpline(Vec3(.5, .5, zC), upperRad, -PI*3/4, PI*1/4),
-    new ArcSpline(Vec3(.5, .5, zC), upperRad, PI*1/4, PI*5/4)
-//    makeLines(Vec3(.25, .25, .1), Vec3(.75, .25, .1), Vec3(.75, .75, .1), Vec3(.25, .75, .1), Vec3(.25, .25, .1)):_*
-  )
-//    new Line(Vec3(0, 1, .1f), Vec3(1, 1, .1f))
-//    new Spline3D(Array(
-//      new Vec3D(.5, .25, .1),
-//      new Vec3D(.75, .5, .1),
-//      new Vec3D(.5, .75, .1),
-//      new Vec3D(.25, .5, .1),
-//      new Vec3D(.5, .25, .1)
-//    ))
-  private def sample(s:Spline):Array[Vec3] = {
-//    val sampled = s.sampled//s.computeVertices(SAMPLE_NUM).toArray(Array[Vec3D]())
-//    Array.tabulate(sampled.length)(i => sampled(i):Vec3)
-    s.sampled(SAMPLE_NUM).toArray
-  }
-
+  private val segLen = .1f
   /**
    * A set of sampled points of the first spline, in local coordinates.
    */
-  private lazy val s1Sampled:Array[Vec3] = sample(spline1)
+  private lazy val s1Sampled:Array[Vec3] = {
+    val bezTall = .1f
+
+    val xC = .5f - upperRad
+    val bezTallIn = bezTall * xC / dist(0, 0, xC, zC)
+    val bezTallUp = bezTall * zC / dist(0, 0, xC, zC)
+    val bs1 = List(Vec3(segLen, 0, 0), Vec3(segLen, bezTallIn, bezTallUp), Vec3(1 - segLen, bezTallIn, bezTallUp), Vec3(1 - segLen, 0, 0));
+    val bs2 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(1, 0); p.rotate(PI/2);   p}))
+    val bs3 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(1, 1); p.rotate(PI);     p}))
+    val bs4 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(0, 1); p.rotate(3*PI/2); p}))
+    val spline1 = new PiecewiseSpline(
+          Line(Vec3(0, segLen, 0), Vec3(segLen, 0, 0)),
+          BezierSpline(bs1),
+          Line(Vec3(1 - segLen, 0, 0), Vec3(1, segLen, 0)),
+          BezierSpline(bs2),
+          Line(Vec3(1, 1 - segLen, 0), Vec3(1 - segLen, 1, 0)),
+          BezierSpline(bs3),
+          Line(Vec3(segLen, 1, 0), Vec3(0, 1 - segLen, 0)),
+          BezierSpline(bs4)
+    //      makeLines(Vec3(), Vec3.X, Vec3(1, 1, 0), Vec3.Y, Vec3()):_*
+        )
+//    def cleanSample(s: Spline) = s match {
+//      case Line(a, b) => Seq(a, b)
+//      case b: BezierSpline => b.sampled(15)
+//    }
+//    spline1.splines.map(cleanSample _).reduceLeft(_.tail ++ _).toArray
+    spline1.sampled(50).toArray
+  }
 
   /**
    * A set of sampled points of the second spline, in local coordinates.
    */
-  private lazy val s2Sampled:Array[Vec3] = sample(spline2)
+  private lazy val s2Sampled:Array[Vec3] = {
+    val spline2 =
+    //    new BezierSpline(Vec3(0, .8, 0), Vec3(0, 1.5, .1), Vec3(1, 1.5, 1), Vec3(1, .8, 0))
+      new PiecewiseSpline(
+        new ArcSpline(Vec3(.5, .5, zC), upperRad, -PI*3/4, PI*1/4),
+        new ArcSpline(Vec3(.5, .5, zC), upperRad, PI*1/4, PI*5/4)
+    //    makeLines(Vec3(.25, .25, .1), Vec3(.75, .25, .1), Vec3(.75, .75, .1), Vec3(.25, .75, .1), Vec3(.25, .25, .1)):_*
+      )
+    spline2.sampled(s1Sampled.length).toArray
+  }
 
 
   lazy val buffer = createGraphics(width, height, P3D).asInstanceOf[PGraphics3D]
@@ -572,7 +558,7 @@ class Applet extends MyPApplet { app =>
   }
 
   case class Module(p1:Vec3, p2:Vec3, p3:Vec3, p4:Vec3) extends SeqProxy[Vec3] {
-    //=========FIELDS THAT DON'T DEPEND ON UI STATE==============
+    //=========FIELDS THAT DON'T DEPEND ON UI STATE (namely, PROJECTION and XY_SCALE and Z_SCALE)==============
     val self = Seq(p1, p2, p3, p4)
 
     val midpoint = (this reduceLeft (_ + _)) / 4
@@ -593,7 +579,7 @@ class Applet extends MyPApplet { app =>
     private def isGoodMatrix(mat:PMatrix3D) = P5Util.transformed(Vec3(.5f, .5f, 1), mat).mag > 1
 
     /**
-     * Keeps track of updates.
+     * Keeps track of updates that depend on the PROJECTION field.
      */
     private var updatesProjection:Seq[() => Unit] = Seq()
     private def addUpdateProjection(x: => Unit) { updatesProjection :+= (() => x) }
@@ -787,13 +773,14 @@ class Applet extends MyPApplet { app =>
       g.applyMatrix(P5Util.rotateAtoBMat(Vec3.Z, p))
 
 //      FASTENER.draw(g);
+      RectFasteners.draw(g);
 
 //      g.fill(255);
 //      g.stroke(255);
 //      g.noStroke();
       g.fill(MATERIAL.color)
 //      g.scale(1 / 10f);
-      Grommets.draw(g);
+//      Grommets.draw(g);
 //      g.ellipse(0, 0, .1f, .05f)
 //      g.rect(-w, -w, 2*w, 2*w)
 //      g.box(w, w, w)
