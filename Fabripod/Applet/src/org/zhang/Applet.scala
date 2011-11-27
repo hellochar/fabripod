@@ -205,12 +205,12 @@ class Applet extends MyPApplet { app =>
           BezierSpline(bs4)
     //      makeLines(Vec3(), Vec3.X, Vec3(1, 1, 0), Vec3.Y, Vec3()):_*
         )
-//    def cleanSample(s: Spline) = s match {
-//      case Line(a, b) => Seq(a, b)
-//      case b: BezierSpline => b.sampled(15)
-//    }
-//    spline1.splines.map(cleanSample _).reduceLeft(_.tail ++ _).toArray
-    spline1.sampled(50).toArray
+    def cleanSample(s: Spline) = s match {
+      case Line(a, b) => Seq(a, b)
+      case b: BezierSpline => b.sampled(5)
+    }
+    spline1.splines.map(cleanSample _).reduceLeft(_.dropRight(1) ++ _).toArray
+//    spline1.sampled(50).toArray
   }
 
   /**
@@ -381,13 +381,6 @@ class Applet extends MyPApplet { app =>
     val hardware = makeButtons("Hardware", height * .8f, ALL_HARDWARE.map(_.name):_*)
     def HARDWARE = ALL_HARDWARE(hardware.value.toInt)
 
-
-    def calculateModules = for(lat <- 0 until NUM_LAT; lon <- 0 until NUM_LON) yield Module(
-      toSphere(lat, lon),
-      toSphere(lat, lon+1),
-      toSphere(lat+1, lon+1),
-      toSphere(lat+1, lon));
-
     def validifyState() {
       //this ensures that at least one "materials" option is always checked.
       if(materials.value() < 0) materials.activate(0);
@@ -457,8 +450,53 @@ class Applet extends MyPApplet { app =>
    * Depends on: NUM_LAT, NUM_LON
    */
   var modules:IndexedSeq[Module] = _
+  def yieldModules = for(lat <- 0 until NUM_LAT; lon <- 0 until NUM_LON) yield Module(
+        toSphere(lat, lon),
+        toSphere(lat, lon+1),
+        toSphere(lat+1, lon+1),
+        toSphere(lat+1, lon));
 
-  def tabs = for(lat <- 0 to NUM_LAT; lon <- 0 until NUM_LON) yield Tab(toSphere(lat, lon)) //we want to go all the way TO NUM_LAT to encompass the very top of the top strip
+  /**
+   * Depends on: NUM_LAT, NUM_LON
+   * tabs goes from [0, NUM_LAT]; each tabs(i) goes from [0, NUM_LON)
+   */
+  var tabs:IndexedSeq[Tab] = _
+    //for(lat <- 0 to NUM_LAT; lon <- 0 until NUM_LON) yield Tab(toSphere(lat, lon)) //we want to go all the way TO NUM_LAT to encompass the very top of the top strip
+  def yieldTabs = for(lat <- 0 to NUM_LAT; lon <- 0 until NUM_LON) yield {
+    /**
+     * @param lat [0, NUM_LAT)
+     */
+    def moduleAt(lat:Int, lon:Int) =
+      if(lat >= 0 && lat < NUM_LAT)
+        modules(lat*NUM_LON+(if(lon < 0) lon + NUM_LON else lon % NUM_LON))
+      else
+        sys.error(lat+" out of bounds")
+
+    val segLen = this.segLen * 1.1f
+    val pts = lat match {
+      case 0 => {
+        Seq(
+          moduleAt(lat, lon).loc2Global(Vec2(1 - segLen, 1)), //left
+          moduleAt(lat, lon-1).loc2Global(Vec2(segLen, 1)), //right
+          moduleAt(lat, lon-1).loc2Global(Vec2(0, 1 - segLen)) //top
+        )
+      }
+      case lat if lat == NUM_LAT => {
+        Seq(
+          moduleAt(lat-1, lon).loc2Global(Vec2(1 - segLen, 0)), //left
+          moduleAt(lat-1, lon-1).loc2Global(Vec2(segLen, 0)), //right
+          moduleAt(lat-1, lon-1).loc2Global(Vec2(0, segLen)) //bottom
+        )
+      }
+      case lat => {
+        Seq(moduleAt(lat, lon).loc2Global(Vec2(1, 1 - segLen)), //top
+          moduleAt(lat - 1, lon).loc2Global(Vec2(1 - segLen, 0)), //left
+          moduleAt(lat - 1, lon - 1).loc2Global(Vec2(0, segLen)), //bottom
+          moduleAt(lat, lon - 1).loc2Global(Vec2(segLen, 1))) //right
+      }
+    }
+    Tab(pts) //we want to go all the way TO NUM_LAT to encompass the very top of the top strip
+  }
 
   /** Consider the "Real world" length, measured in units of inches. We convert between global coordinates and real world coordinates
    *  by simply scaling the coordinate's x/y by SCALE_XY and the coordiante's z by SCALE_Z.
@@ -496,9 +534,12 @@ class Applet extends MyPApplet { app =>
 //    buffer.smooth();
 //    buffer.endDraw();
 //    cp5.setAutoDraw(false);
-    cp5.addListener(modules = cp5.calculateModules, cp5.vertDiv, cp5.horizDiv)
-    cp5.addListener(modules.foreach(_.updateWithProjection()), cp5.projection)
-    cp5.addListener(modules.foreach(_.updateScaleXYAndScaleZ()), cp5.xyScale, cp5.zScale)
+    cp5.addListener({
+      modules = yieldModules; //modules are consistent
+      tabs = yieldTabs; //tabs are now consistent.
+    }, cp5.vertDiv, cp5.horizDiv)
+    cp5.addListener(modules.foreach(_.updateFromProjection()), cp5.projection)
+    cp5.addListener(modules.foreach(_.updateFromXYZScale()), cp5.xyScale, cp5.zScale)
   }
 
 //  def updateState() {
@@ -519,6 +560,11 @@ class Applet extends MyPApplet { app =>
 
       buffer.background(0);
       buffer.lights();
+//      buffer.ambientLight(102, 102, 102);
+      buffer.lightSpecular(204, 204, 204);
+      buffer.specular(255);
+      buffer.directionalLight(180, 180, 180, .4, .6, .25)
+      buffer.shininess(10)
 
 //      println("material: "+MATERIAL)
       buffer.noStroke();
@@ -557,6 +603,27 @@ class Applet extends MyPApplet { app =>
     println("End frame: "+frameRate)
   }
 
+  /**
+   * <p>Represents one module of the lamp, specified by the four corners of the module; it's assumed that the corners form
+   * a trapezoid on the plane where the points live.</p> <br />
+   * <p>
+   * Each module has its own local coordinate system where the +Z direction
+   * points in the module's normal, the +X direction points from p3 to p4, and the +Y direction points from p3 to p2. The point
+   * (1, 0, 0) in local coordinates transforms into the p4 coordinate. The local coordinate's origin transforms into p3. The point (0, 0, 1)
+   * transforms into a coordinate projected outward from p3, of length equal to the length from the trapezoid's middle to the global origin. As such,
+   * small z-values are preferred. </p><br />
+   * <p>If we
+   * imagine looking at the trapezoid in the plane that it lives on, then p1 is the bottom right corner, p2 is the bottom left corner,
+   * p3 is the top left corner, and p4 is the top right corner.</p><br />
+   * <p> The state of the module will be consistent with the UI parameters in two cases: <ol>
+   *   <li> The module gets instantiated for the first time.
+   *   <li> The module's <code>updateFromProjection()</code> and <code>updateFromScaleXYZ()</code> methods are called.
+   * </ol>
+   * It is enough to call such methods only when the corresponding UI elements' values change.</p><br />
+   * <p>The only variable that depends on the XYZ scale is the spline length.</p><br />
+   * <p>The PROJECTION field affects the coordinate transformation from local to global; specifically, the local plane's Z coordinate
+   * gets scaled by <code>PROJECTION</code>. This means that points on the local plane with zero Z component are invariant under UI changes.</p>
+   */
   case class Module(p1:Vec3, p2:Vec3, p3:Vec3, p4:Vec3) extends SeqProxy[Vec3] {
     //=========FIELDS THAT DON'T DEPEND ON UI STATE (namely, PROJECTION and XY_SCALE and Z_SCALE)==============
     val self = Seq(p1, p2, p3, p4)
@@ -609,7 +676,8 @@ class Applet extends MyPApplet { app =>
     private def global2Middle(v:Vec3) = P5Util.transformed(v, g2m)
 
     /**
-     * This is p2 represented in the middle coordinate system. It fully describes the trapezoid in the middle.
+     * This is p2 represented in the middle coordinate system. It fully describes the trapezoid in the middle. This vector
+     * should have zero Z component in both middle and local systems.
      */
     private var p2m:Vec3 = _
     addUpdateProjection(p2m = global2Middle(p2))
@@ -631,6 +699,7 @@ class Applet extends MyPApplet { app =>
       }
     }
     def loc2Global(loc:Vec3) = P5Util.transformed(loc2Middle(loc), m2g);
+    def loc2Global(loc:Vec2):Vec3 = P5Util.transformed(loc2Middle(loc.xy), m2g);
     private def mutateToGlobal(dest:Array[Vec3], spline:Array[Vec3]) {
 //      locs.map(loc2Global _)
       var i = 0; while(i < spline.length) { dest(i) = loc2Global(spline(i)); i += 1; }
@@ -662,7 +731,7 @@ class Applet extends MyPApplet { app =>
     }
     addUpdateProjection(updateSplineLength)
 
-    def updateScaleXYAndScaleZ() {
+    def updateFromXYZScale() {
       updateSplineLength()
     }
 
@@ -671,10 +740,10 @@ class Applet extends MyPApplet { app =>
      * <ul>PROJECTION
      * </li>
      */
-    def updateWithProjection() {
+    def updateFromProjection() {
       updatesProjection.foreach(_())
     }
-    updateWithProjection(); //call to set variable state at the beginning
+    updateFromProjection(); //call to set variable state at the beginning
 
 //    if(!this.map(x => P5Util.transformed(x, g2m)).forall(x => abs(x.z) < .1f))
 //      println("Non-planarity: "+this.map(x => P5Util.transformed(x, g2m)))
@@ -761,40 +830,25 @@ class Applet extends MyPApplet { app =>
 
   }
 
-  case class Tab(p:Vec3) {
+//  class Tab(var top:Vec3, var left:Vec3, var bottom:Vec3, var right:Vec3) {
+  /**
+   * <p>Represents one tab of the lamp; as of now, this is simply a wrapper around a list of points that the tab should draw to.</p><br />
+   * <p>All values are interpreted in global coordinates (NOT real world).</p><br />
+   * <p>This class is invariant under all UI states (bar horizDiv and vertDiv of course).</p>
+   */
+  case class Tab(pts:Seq[Vec3]) {
     /**
      * Precondition: g has the same transformation as was used for modules, WITHOUT the glob2RealWorld matrix.
      * Postcondition: g still has the identity transformation matrix.
      */
     def draw(g:PGraphics3D) {
       import g._
-      g.pushMatrix()
-      g.translate(p.x, p.y, p.z)
-      g.applyMatrix(P5Util.rotateAtoBMat(Vec3.Z, p))
-
-//      FASTENER.draw(g);
-      RectFasteners.draw(g);
-
-//      g.fill(255);
-//      g.stroke(255);
-//      g.noStroke();
-      g.fill(MATERIAL.color)
-//      g.scale(1 / 10f);
-//      Grommets.draw(g);
-//      g.ellipse(0, 0, .1f, .05f)
-//      g.rect(-w, -w, 2*w, 2*w)
-//      g.box(w, w, w)
-
-      g.popMatrix()
 //      g.pushMatrix()
-//      g.translate(p.x, p.y, p.z);
-//      g.applyMatrix(P5Util.rotateAtoBMat(Vec3.Z, p))
-//      g.noStroke();
-//      g.fill(255)
-//  //    ellipse(0, 0, .1f, .1f);
-//      val w = .03f
-//      g.box(w, w, w * SCALE_XY / SCALE_Z)
-////      g.rect(-w, -w, w*2, w*2);
+      g.fill(MATERIAL.color)
+      g.beginShape(TRIANGLE_FAN);
+//      List(top, left, bottom, right) foreach (x => g.vertex(x.x, x.y, x.z))
+      pts foreach (x => g.vertex(x.x, x.y, x.z))
+      g.endShape(CLOSE);
 //      g.popMatrix()
     }
   }
