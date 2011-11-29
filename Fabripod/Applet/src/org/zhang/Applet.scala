@@ -27,24 +27,32 @@ class Applet extends MyPApplet { app =>
 
   //==========FIELDS THAT DON'T DEPEND ON UI STATE============
 
+
+  /**
+   * Class for all materials. It is here where variables such as material name, color and cost are instantiated.
+   */
   case class Material(name:String, color:Int, centsPerLinearInch:Int)
-  case object BirchVeneer extends Material("Birch Veneer", 0xFFEAA400, 35)
-  case object CherryVeneer extends Material("Cherry Veneer", 0xFFFF9C42, 35)
-  case object RicePaper extends Material("Rice Paper", 0xFFF8E9FC, 15)
+  case object BirchVeneer extends Material("Birch Veneer", 0xFFEAA400, 35) //Birch Veneer costs 35 cents per linear inch.
+  case object CherryVeneer extends Material("Cherry Veneer", 0xFFFF9C42, 35) //Cherry Veneer similarly costs 35 cents per linear inch.
+  case object RicePaper extends Material("Rice Paper", 0xFFF8E9FC, 15) //Rice paper only costs 15 cents per inch
   case object WhitePlastic extends Material("White Plastic", 0xFFFFFFFF, 15)
   case object PinkPlastic extends Material("Pink Plastic", 0xFFFE67EB, 15)
   case object OrangePlastic extends Material("Orange Plastic", 0xFFFF6600, 15)
   val ALL_MATERIALS = List(BirchVeneer, CherryVeneer, RicePaper, WhitePlastic, PinkPlastic, OrangePlastic)//.map(x => (x.name, x)).toMap
 
+  /**
+   * Class for all hardware. Right now there's only a name and a cost (again, in cents)
+   */
   case class Hardware(name:String, cents:Int)
-  case object CordWhite6 extends Hardware("6' Cord - White", 10*100)
-  case object CordWhite12 extends Hardware("12' Cord - White", 10*100)
-  case object Stand24 extends Hardware("24' Stand", 25 * 100)
+  case object CordWhite6 extends Hardware("6' Cord - White", 10*100) //6' cord costs 10 dollars
+  case object CordWhite12 extends Hardware("12' Cord - White", 10*100) //12' cord also costs 10 dollars
+  case object Stand24 extends Hardware("24' Stand", 25 * 100) //stand costs 25 dollars
   case object Stand60 extends Hardware("60' Stand", 25 * 100)
-  case object NoHardware extends Hardware("None - I'll get my own", 0)
+  case object NoHardware extends Hardware("None - I'll get my own", 0) //free
   val ALL_HARDWARE = List(CordWhite6, CordWhite12, Stand24, Stand60, NoHardware)
 
 
+/*
   abstract class Fastener(val name:String) {
     def draw(g:PGraphics3D)
   }
@@ -84,7 +92,7 @@ class Applet extends MyPApplet { app =>
     }
   }
   val ALL_FASTENERS = List(ClearSnaps, WhiteSnaps, BlackSnaps, Grommets)
-
+*/
   private sealed abstract class Spline {
 //    def start:Vec3
 //    def end:Vec3
@@ -117,12 +125,6 @@ class Applet extends MyPApplet { app =>
 //    def sampled(num:Int) =
 //    def sampled = Seq(start, end)
   }
-
-//  /**
-//   * Returns a Seq of lines going through the specified points; the seq will be of length (points.length - 1)
-//   */
-//  private def makeLines(points:Vec3*) = points.sliding(2).map(x => Line(x(0), x(1))).toSeq
-
   private case class BezierSpline(start:Vec3, cp1:Vec3, cp2:Vec3, end:Vec3) extends Spline {
     def seq = Seq(start, cp1, cp2, end)
     import collection.JavaConverters._
@@ -144,6 +146,9 @@ class Applet extends MyPApplet { app =>
     def apply(pt:Seq[Vec3]):BezierSpline = apply(pt(0), pt(1), pt(2), pt(3))
   }
 
+  /**
+   * An arc on the
+   */
   private case class ArcSpline(center:Vec3, rad:Float, angStart:Float, angEnd:Float) extends Spline {
     import zhang.Methods
     def length = TWO_PI * rad
@@ -166,9 +171,10 @@ class Applet extends MyPApplet { app =>
       //
       val segNorms = (0f +: (org.zhang.lib.partialSum(splines.map(_.length / length).toStream).toSeq))
       val pairs = segNorms.sliding(2).toSeq
-      val goodIndex = pairs.indexWhere(f < _(1))
+      var goodIndex = pairs.indexWhere(f < _(1))
       if(goodIndex < 0 || goodIndex >= pairs.length || goodIndex >= splines.length) {
         println("aww skeet")
+        goodIndex = 0;
       }
       splines(goodIndex).point(map(f, pairs(goodIndex)(0), pairs(goodIndex)(1), 0, 1))
 //      val lenSummed = org.zhang.lib.partials(lenNorm.toStream).toSeq.map(stream => (stream.last._1, stream.map(_._2).sum)) //gives the summed up length of all the splines
@@ -177,62 +183,18 @@ class Applet extends MyPApplet { app =>
     }
   }
 
-  private val upperRad = .2f
-  private val zC = .2f
-
+  /**
+   * The height of the control points for the bezier paths.
+   */
   private val segLen = .1f
-  /**
-   * A set of sampled points of the first spline, in local coordinates.
-   */
-  private lazy val s1Sampled:Array[Vec3] = {
-    val bezTall = .1f
-
-    val xC = .5f - upperRad
-    val bezTallIn = bezTall * xC / dist(0, 0, xC, zC)
-    val bezTallUp = bezTall * zC / dist(0, 0, xC, zC)
-    val bs1 = List(Vec3(segLen, 0, 0), Vec3(segLen, bezTallIn, bezTallUp), Vec3(1 - segLen, bezTallIn, bezTallUp), Vec3(1 - segLen, 0, 0));
-    val bs2 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(1, 0); p.rotate(PI/2);   p}))
-    val bs3 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(1, 1); p.rotate(PI);     p}))
-    val bs4 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(0, 1); p.rotate(3*PI/2); p}))
-    val spline1 = new PiecewiseSpline(
-          Line(Vec3(0, segLen, 0), Vec3(segLen, 0, 0)),
-          BezierSpline(bs1),
-          Line(Vec3(1 - segLen, 0, 0), Vec3(1, segLen, 0)),
-          BezierSpline(bs2),
-          Line(Vec3(1, 1 - segLen, 0), Vec3(1 - segLen, 1, 0)),
-          BezierSpline(bs3),
-          Line(Vec3(segLen, 1, 0), Vec3(0, 1 - segLen, 0)),
-          BezierSpline(bs4)
-    //      makeLines(Vec3(), Vec3.X, Vec3(1, 1, 0), Vec3.Y, Vec3()):_*
-        )
-    def cleanSample(s: Spline) = s match {
-      case Line(a, b) => Seq(a, b)
-      case b: BezierSpline => b.sampled(5)
-    }
-    spline1.splines.map(cleanSample _).reduceLeft(_.dropRight(1) ++ _).toArray
-//    spline1.sampled(50).toArray
-  }
-
-  /**
-   * A set of sampled points of the second spline, in local coordinates.
-   */
-  private lazy val s2Sampled:Array[Vec3] = {
-    val spline2 =
-    //    new BezierSpline(Vec3(0, .8, 0), Vec3(0, 1.5, .1), Vec3(1, 1.5, 1), Vec3(1, .8, 0))
-      new PiecewiseSpline(
-        new ArcSpline(Vec3(.5, .5, zC), upperRad, -PI*3/4, PI*1/4),
-        new ArcSpline(Vec3(.5, .5, zC), upperRad, PI*1/4, PI*5/4)
-    //    makeLines(Vec3(.25, .25, .1), Vec3(.75, .25, .1), Vec3(.75, .75, .1), Vec3(.25, .75, .1), Vec3(.25, .25, .1)):_*
-      )
-    spline2.sampled(s1Sampled.length).toArray
-  }
-
 
   lazy val buffer = createGraphics(width, height, P3D).asInstanceOf[PGraphics3D]
   object scene extends Scene(this, buffer) {
     disableKeyboardHandling();
     setAxisIsDrawn(false);
     setGridIsDrawn(false);
+    cam.setPosition(new PVector(0, 261, 0))
+    cam.lookAt(new PVector());
   }
   override def mousePressed() {
     //camera shouldnt respond to UI events
@@ -243,25 +205,6 @@ class Applet extends MyPApplet { app =>
    * Calculates the total length of any sequence of points.
    */
   def calculateLength(pts:Seq[Vec3]) = pts.sliding(2).map(x => (x(1)-x(0)).mag).sum
-  def mm1[A, R](f: A => R) = {
-    var input:A = null.asInstanceOf[A];
-    var value:R = null.asInstanceOf[R];
-    (a:A) => if(a == input) value else {
-      input = a;
-      value = f(a);
-      value
-    }
-  }
-  def mm2[A, A2, R](f: (A, A2) => R) = {
-    var inputA:A = null.asInstanceOf[A];
-    var inputA2:A2 = null.asInstanceOf[A2];
-    var value:R = null.asInstanceOf[R];
-    (a:A, a2:A2) => if(a == inputA && a2 == inputA2) value else {
-      inputA = a; inputA2 = a2;
-      value = f(a, a2);
-      value
-    }
-  }
 
   //====================================================FIELDS THAT DEPEND ON STATE==============================
 
@@ -269,7 +212,9 @@ class Applet extends MyPApplet { app =>
   /**
    * The UI state is the set of variables for the UI. They are: <ul>
    *   <li>SCALE_XY
-        <li>SCALE_Z <br />
+        <li>SCALE_Z
+        <li>ARC_HEIGHT
+        <li>CIRCLE_RAD
    <li>NUM_LAT
   <li>NUM_LON <br />
    <li>PROJECTION
@@ -277,11 +222,6 @@ class Applet extends MyPApplet { app =>
   <li>HARDWARE
   </ul>
    */
-//  override def keyReleased(p1: KeyEvent) {
-//    println(p1);
-//  }
-
-
   object cp5 extends ControlP5(this) {
     //==========================INDEPENDENT STUFF===========================
     /**
@@ -363,6 +303,12 @@ class Applet extends MyPApplet { app =>
     val horizDiv = addSlider("Horizontal Divisions", 2, 50); horizDiv.setValue(5); horizDiv.linebreak(); horizDiv.setNumberOfTickMarks(50 - 2+ 1); horizDiv.showTickMarks(false);
     def NUM_LON = horizDiv.getValue.toInt
 
+    val arcHeight = addSlider("Arc Height", 0, 1); arcHeight.setValue(.2f); arcHeight.linebreak();
+    def ARC_HEIGHT = arcHeight.getValue
+
+    val circleRad = addSlider("Circle Radius", 0, .5f); circleRad.setValue(.2f); circleRad.linebreak();
+    def CIRCLE_RAD = circleRad.getValue
+
     /**
      * Converts a given lat and lon given in index-angles into its corresponding point on the unit sphere.
      * @param lat ranges from [0, NUM_LAT), where 0 is at the "bottom" of the lamp and NUM_LAT is the top.
@@ -390,16 +336,16 @@ class Applet extends MyPApplet { app =>
     }
 
     def makeInfos(title:String, y:Float, pairs:(String, () => String)*) = {
-              val label = addTextlabel(title+"title", title, width - 170, y.toInt);
+              val label = addTextlabel(title, title, width - 170, y.toInt);
               val p = pairs.zipWithIndex.map{ case ((name, method), idx) => {
                 val myY = y.toInt + label.getHeight + 20 * idx
-                val myLabel = addTextlabel(name+"label", name, width - 160, myY)
+                val myLabel = addTextlabel(name, name, width - 160, myY)
                 val field = addTextfield("", width - 110, myY, 100, 10);
                 field.setUserInteraction(false);
                 //calling it at the beginning will cause a self-dependency sometimes
         //        field.setValue(method());
                 infoUpdater.infos += field -> method
-                (field, label)
+                (field, myLabel)
               }}
               (label, p)
             }
@@ -441,10 +387,131 @@ class Applet extends MyPApplet { app =>
 
     val makeItButton = {
       val button = addButton("MAKE IT!", 0, width-170, (height * .7f).toInt, 160, 100)
+      button.addListener(new ControlListener {
+        def controlEvent(theEvent: ControlEvent) {
+          sendEmail()
+        }
+      })
       button;
     }
   }
-  import cp5.{NUM_LAT, NUM_LON, SCALE_XY, SCALE_Z, PROJECTION, MATERIAL, toSphere/*FASTENER, */}
+  import cp5.{NUM_LAT, NUM_LON, SCALE_XY, SCALE_Z, PROJECTION, CIRCLE_RAD, ARC_HEIGHT, MATERIAL, toSphere/*FASTENER, */}
+
+  def sendEmail() {
+    def showError(e:Exception) {
+      e.printStackTrace()
+      val err = e.toString
+      val cw = cp5.addControlWindow("err "+err, 800, 200)
+      val canvas = new controlP5.ControlWindowCanvas() {
+        def draw(p: PApplet) {
+          p.background(0);
+          p.stroke(255);
+          p.textFont(p.createFont("Arial", 20))
+          p.text("An error has occured: \n"+err+"\nPlease contact chris@fabripod.com for more details.", 0, 0, p.width, p.height)
+        }
+      }
+      cw.addCanvas(canvas)
+    }
+    val transactionCode = (new scala.util.Random()).nextLong().toHexString
+    def makeEmailText() = {
+      //XY_SCALE
+      //Z_SCALE
+      //vertical divisions
+      //horizontal divisions
+      //arc height
+      //circle radius
+      //projection
+
+      //material
+      //hardware
+
+      //width
+      //height
+
+      //costs
+
+
+      val dt = "Date and time: "+java.text.DateFormat.getDateTimeInstance.format(new java.util.Date());
+      val tCode = "Transaction code: "+transactionCode
+
+      val sliders = {import cp5._; List(xyScale, zScale, vertDiv, horizDiv, arcHeight, circleRad, projection)}.map(x => x.name()+": "+x.value()).mkString("Parameters\n\t", "\n\t", "")
+
+      val material = "Material: "+cp5.MATERIAL.name
+
+      val hardware = "Hardware: "+cp5.HARDWARE.name
+
+      import controlP5.Textlabel
+      def makeInfosString(infos:(Textlabel, Seq[(Textfield, Textlabel)])) = infos match {
+        case (label, seq) => label.label+"\n"+(seq.map{ case (field, label) => label.label.trim+": "+field.getText}.mkString("\t", "\n\t", ""))
+      }
+
+      val specs = makeInfosString(cp5.specs)
+
+      val costs = makeInfosString(cp5.costs)
+
+      List(dt, tCode, sliders, material, hardware, specs, costs).mkString("\n\n")
+    }
+    println("email text will look like: \n"+makeEmailText())
+    import java.io._
+    import java.net._
+    import javax.mail._, internet._
+    import java.util.Properties
+    try {
+      val props = new Properties();
+      props.put("mail.smtp.port", "587");
+//      props.put("mail.smtp.host", )
+      props.put("mail.smtp.user", "sales@fabripod.com")
+      props.put("mail.smtp.starttls.enable", "true");
+      props.put("mail.smtp.auth", "true");
+      props.put("mail.smtp.recipient", "chris@fabripod.com")
+      //val to = "chris@fabripod.com"
+
+      try {
+        val propsFile = new URL(getCodeBase(), "email.txt");
+        val in = propsFile.openStream();
+        props.load(in);
+        in.close();
+      } catch {
+        case e: Exception => showError(e)
+      }
+
+      val host = props.getProperty("mail.smtp.host") //what if these are null?
+      val from = props.getProperty("mail.smtp.user")
+      val pass = props.getProperty("mail.smtp.password") //what if this is null? what if it's malformed?
+      val to = props.getProperty("mail.smtp.recipient")
+
+      val session = Session.getDefaultInstance(props, null);
+      val message = new MimeMessage(session);
+      message.setFrom(new InternetAddress(from));
+      val toAddr = new InternetAddress(to)
+      message.addRecipient(Message.RecipientType.TO, toAddr)
+      message.setSubject("Lamp transaction")
+      message.setText(makeEmailText());
+      val transport = session.getTransport("smtp")
+      transport.connect(host, from, pass)
+      transport.sendMessage(message, message.getAllRecipients());
+      transport.close();
+    } catch {
+      case e: Exception => showError(e)
+    }
+  }
+
+  /**
+   * The radius of the upper circle, from the center
+   */
+  private def upperRad = CIRCLE_RAD
+
+  /**
+   * The height of the upper circle.
+   */
+  private def upperCircleHeight = map(CIRCLE_RAD, 0, cp5.circleRad.getMax, .2f, .35f)
+
+
+  /**
+   * A set of sampled points of the first spline, in local coordinates. depends on: arcHeight, circleRad
+   */
+  private var s1Sampled:Array[Vec3] = _
+  private var s2Sampled:Array[Vec3] = _
 
   /**
    * Depends on: NUM_LAT, NUM_LON
@@ -509,7 +576,7 @@ class Applet extends MyPApplet { app =>
 
   override def setup() {
     size(800, 600, JAVA2D)
-    assert(s1Sampled.length == s2Sampled.length, s1Sampled.length+" vs "+s2Sampled.length) //this also forces it
+//    assert(s1Sampled.length == s2Sampled.length, s1Sampled.length+" vs "+s2Sampled.length) //this also forces it
 //    cam;
     buffer; //force
     scene; //force
@@ -524,22 +591,60 @@ class Applet extends MyPApplet { app =>
       }
     })
 
+    cp5.addListener({s1Sampled = {
+        val bezTall = ARC_HEIGHT * upperCircleHeight
 
-    cp5.addListener(glob2RealWorldMat = {
+        val xC = .5f - upperRad
+        val bezTallIn = bezTall * xC / dist(0, 0, xC, upperCircleHeight)
+        val bezTallUp = bezTall * upperCircleHeight / dist(0, 0, xC, upperCircleHeight)
+        val bs1 = List(Vec3(segLen, 0, 0), Vec3(segLen, bezTallIn, bezTallUp), Vec3(1 - segLen, bezTallIn, bezTallUp), Vec3(1 - segLen, 0, 0));
+        val bs2 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(1, 0); p.rotate(PI/2);   p}))
+        val bs3 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(1, 1); p.rotate(PI);     p}))
+        val bs4 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(0, 1); p.rotate(3*PI/2); p}))
+        val spline1 = new PiecewiseSpline(
+              Line(Vec3(0, segLen, 0), Vec3(segLen, 0, 0)),
+              BezierSpline(bs1),
+              Line(Vec3(1 - segLen, 0, 0), Vec3(1, segLen, 0)),
+              BezierSpline(bs2),
+              Line(Vec3(1, 1 - segLen, 0), Vec3(1 - segLen, 1, 0)),
+              BezierSpline(bs3),
+              Line(Vec3(segLen, 1, 0), Vec3(0, 1 - segLen, 0)),
+              BezierSpline(bs4)
+        //      makeLines(Vec3(), Vec3.X, Vec3(1, 1, 0), Vec3.Y, Vec3()):_*
+            )
+        def cleanSample(s: Spline) = s match {
+          case Line(a, b) => Seq(a, b)
+          case b: BezierSpline => b.sampled(10)
+        }
+        spline1.splines.map(cleanSample _).reduceLeft(_.dropRight(1) ++ _).toArray
+      }; s2Sampled = {
+          val spline2 =
+          //    new BezierSpline(Vec3(0, .8, 0), Vec3(0, 1.5, .1), Vec3(1, 1.5, 1), Vec3(1, .8, 0))
+            new PiecewiseSpline(
+              new ArcSpline(Vec3(.5, .5, upperCircleHeight), upperRad, -PI*3/4, PI*1/4),
+              new ArcSpline(Vec3(.5, .5, upperCircleHeight), upperRad, PI*1/4, PI*5/4)
+          //    makeLines(Vec3(.25, .25, .1), Vec3(.75, .25, .1), Vec3(.75, .75, .1), Vec3(.25, .75, .1), Vec3(.25, .25, .1)):_*
+            )
+          spline2.sampled(s1Sampled.length).toArray
+        }}, cp5.arcHeight, cp5.circleRad);
+
+
+    cp5.addListener({glob2RealWorldMat = {
       val m = new PMatrix3D();
       m.scale(SCALE_XY, SCALE_XY, SCALE_Z);
       m
-    }, cp5.xyScale, cp5.zScale);
-//    buffer.beginDraw();
-//    buffer.smooth();
-//    buffer.endDraw();
-//    cp5.setAutoDraw(false);
+    }}, cp5.xyScale, cp5.zScale);
     cp5.addListener({
       modules = yieldModules; //modules are consistent
       tabs = yieldTabs; //tabs are now consistent.
     }, cp5.vertDiv, cp5.horizDiv)
     cp5.addListener(modules.foreach(_.updateFromProjection()), cp5.projection)
     cp5.addListener(modules.foreach(_.updateFromXYZScale()), cp5.xyScale, cp5.zScale)
+    cp5.addListener(modules.foreach(_.updateFromArcHeightCircleRadius()), cp5.arcHeight, cp5.circleRad)
+    //    buffer.beginDraw();
+    //    buffer.smooth();
+    //    buffer.endDraw();
+    //    cp5.setAutoDraw(false);
   }
 
 //  def updateState() {
@@ -600,7 +705,7 @@ class Applet extends MyPApplet { app =>
       scene.endScreenDrawing();
     }
 //    drawGui();
-    println("End frame: "+frameRate)
+//    println("End frame: "+frameRate)
   }
 
   /**
@@ -625,6 +730,7 @@ class Applet extends MyPApplet { app =>
    * gets scaled by <code>PROJECTION</code>. This means that points on the local plane with zero Z component are invariant under UI changes.</p>
    */
   case class Module(p1:Vec3, p2:Vec3, p3:Vec3, p4:Vec3) extends SeqProxy[Vec3] {
+
     //=========FIELDS THAT DON'T DEPEND ON UI STATE (namely, PROJECTION and XY_SCALE and Z_SCALE)==============
     val self = Seq(p1, p2, p3, p4)
 
@@ -700,21 +806,33 @@ class Applet extends MyPApplet { app =>
     }
     def loc2Global(loc:Vec3) = P5Util.transformed(loc2Middle(loc), m2g);
     def loc2Global(loc:Vec2):Vec3 = P5Util.transformed(loc2Middle(loc.xy), m2g);
-    private def mutateToGlobal(dest:Array[Vec3], spline:Array[Vec3]) {
-//      locs.map(loc2Global _)
-      var i = 0; while(i < spline.length) { dest(i) = loc2Global(spline(i)); i += 1; }
-    }
 
-    var s1Glob:Array[Vec3] = Array.ofDim(s1Sampled.length)
-    var s2Glob:Array[Vec3] = Array.ofDim(s2Sampled.length)
-    addUpdateProjection(mutateToGlobal(s1Glob, s1Sampled))
-    addUpdateProjection(mutateToGlobal(s2Glob, s2Sampled))
+    /**
+     * Depends on: ARC_HEIGHT, CIRCLE_RAD, PROJECTION
+     */
+    var s1Glob:Array[Vec3] = _//Array.ofDim(s1Sampled.length)
+    var s2Glob:Array[Vec3] = _//Array.ofDim(s2Sampled.length)
+    private def updateGlobs() {
+      /**
+       * Maps all the splines from local to global coordinates and mutates the dest array to hold such values.
+       */
+      def mutateToGlobal(dest:Array[Vec3], spline:Array[Vec3]) {
+        var i = 0; while(i < spline.length) {
+          dest(i) = loc2Global(spline(i)); i += 1;
+        }
+      }
+      if(s1Glob == null) s1Glob = Array.ofDim(s1Sampled.length)
+      if(s2Glob == null) s2Glob = Array.ofDim(s2Sampled.length)
+      mutateToGlobal(s1Glob, s1Sampled)
+      mutateToGlobal(s2Glob, s2Sampled)
+    }
+    addUpdateProjection(updateGlobs())
 //    addUpdate(s1Glob = loc2Global(s1Sampled))
 //    addUpdate(s2Glob = loc2Global(s2Sampled))
 
     /**
      * Returns the length of the two splines making up this Module, in real world inches.
-     * DEPENDS ON SCALE_XY, SCALE_Z, PROJECTION
+     * DEPENDS ON SCALE_XY, SCALE_Z, PROJECTION, ARC_HEIGHT, CIRCLE_RAD
      */
     var splineLength:Float = _
     private def updateSplineLength() {
@@ -729,7 +847,12 @@ class Applet extends MyPApplet { app =>
           calculateLength(s1RealWorld) + calculateLength(s2RealWorld)
         }
     }
-    addUpdateProjection(updateSplineLength)
+    addUpdateProjection(updateSplineLength())
+
+    def updateFromArcHeightCircleRadius() {
+      updateGlobs()
+      updateSplineLength()
+    }
 
     def updateFromXYZScale() {
       updateSplineLength()
