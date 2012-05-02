@@ -10,19 +10,14 @@ package org.zhang
 import geom.{Vec2, Vec3}
 import lib.{CP5Util, P5Util, MyPApplet}
 import processing.core._
-import peasy.PeasyCam
 import remixlab.proscene.Scene
 import collection.SeqProxy
-import toxi.geom.{Spline3D, Vec3D}
-import scala.collection.JavaConversions._
 import java.text.DecimalFormat
 import controlP5.{Controller, Textfield, ControllerInterface, ControlP5, ControlListener, ControlEvent}
-import java.awt.event.{FocusEvent, FocusAdapter, KeyEvent}
+import java.awt.event.{FocusEvent, FocusAdapter}
 
 class Applet extends MyPApplet { app =>
   import PApplet._; import PConstants._;
-  implicit def zhang2toxi(z:Vec3) = new Vec3D(z.x, z.y, z.z)
-  implicit def toxi2zhang(t:Vec3D) = Vec3(t.x, t.y, t.z)
   implicit def d2f(d:Double) = d.toFloat
 
   //==========FIELDS THAT DON'T DEPEND ON UI STATE============
@@ -150,16 +145,38 @@ class Applet extends MyPApplet { app =>
    * An arc on the
    */
   private case class ArcSpline(center:Vec3, rad:Float, angStart:Float, angEnd:Float) extends Spline {
-    import zhang.Methods
+    def angleDistance(xx1:Float, xx2:Float) = {
+      val x1 = wrap(xx1, TWO_PI);
+      val x2 = wrap(xx2, TWO_PI);
+
+      if(x1 == x2) 0f
+      else if(x1 > x2) {
+          if(x1 - x2 > PI) (x2 + TWO_PI) - x1;
+          else -(x1 - x2);
+      }
+      else {
+          if(x2 - x1 > PI) x2 - (x1 + TWO_PI)
+          else x2 - x1;
+      }
+    }
+    def wrap(x:Float, wrap:Float) = {
+      val mod = x % wrap;
+      if(mod < 0) mod + wrap else mod;
+    }
+    def turnTowardsAngle(anglee:Float, wantAng:Float, cap:Float) = {
+      val angle = wrap(anglee, TWO_PI);
+      angle + constrain(angleDistance(angle, wantAng), -cap, cap);
+    }
     def length = TWO_PI * rad
-    private val startRanged = Methods.wrap(angStart, TWO_PI)
-    private val endRanged = Methods.wrap(angEnd, TWO_PI)
+    private val startRanged = wrap(angStart, TWO_PI)
+    private val endRanged = wrap(angEnd, TWO_PI)
 
     def point(f: Float) =
       Vec2.fromPolar(rad,
-        Methods.turnTowardsAngle(startRanged, endRanged, f * Methods.angleDistance(startRanged, endRanged))).xy + center
+        turnTowardsAngle(startRanged, endRanged, f * angleDistance(startRanged, endRanged))).xy + center
   }
 
+/*
   private case class PiecewiseSpline(splines:Spline*) extends Spline {
     def length = (splines map (_.length)).sum
 
@@ -182,7 +199,7 @@ class Applet extends MyPApplet { app =>
 //      lenDropped.head._1.point(map(f, ))
     }
   }
-
+*/
   /**
    * The height of the control points for the bezier paths.
    */
@@ -601,7 +618,7 @@ class Applet extends MyPApplet { app =>
         val bs2 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(1, 0); p.rotate(PI/2);   p}))
         val bs3 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(1, 1); p.rotate(PI);     p}))
         val bs4 = bs1.map(x => P5Util.transformed(x, {val p = new PMatrix3D; p.translate(0, 1); p.rotate(3*PI/2); p}))
-        val spline1 = new PiecewiseSpline(
+        val spline1 = Seq(
               Line(Vec3(0, segLen, 0), Vec3(segLen, 0, 0)),
               BezierSpline(bs1),
               Line(Vec3(1 - segLen, 0, 0), Vec3(1, segLen, 0)),
@@ -610,22 +627,16 @@ class Applet extends MyPApplet { app =>
               BezierSpline(bs3),
               Line(Vec3(segLen, 1, 0), Vec3(0, 1 - segLen, 0)),
               BezierSpline(bs4)
-        //      makeLines(Vec3(), Vec3.X, Vec3(1, 1, 0), Vec3.Y, Vec3()):_*
             )
         def cleanSample(s: Spline) = s match {
           case Line(a, b) => Seq(a, b)
           case b: BezierSpline => b.sampled(10)
         }
-        spline1.splines.map(cleanSample _).reduceLeft(_.dropRight(1) ++ _).toArray
+        spline1.map(cleanSample _).reduceLeft(_.dropRight(1) ++ _).toArray
       }; s2Sampled = {
-          val spline2 =
-          //    new BezierSpline(Vec3(0, .8, 0), Vec3(0, 1.5, .1), Vec3(1, 1.5, 1), Vec3(1, .8, 0))
-            new PiecewiseSpline(
-              new ArcSpline(Vec3(.5, .5, upperCircleHeight), upperRad, -PI*3/4, PI*1/4),
-              new ArcSpline(Vec3(.5, .5, upperCircleHeight), upperRad, PI*1/4, PI*5/4)
-          //    makeLines(Vec3(.25, .25, .1), Vec3(.75, .25, .1), Vec3(.75, .75, .1), Vec3(.25, .75, .1), Vec3(.25, .25, .1)):_*
-            )
-          spline2.sampled(s1Sampled.length).toArray
+          val as1 = new ArcSpline(Vec3(.5, .5, upperCircleHeight), upperRad, -PI*3/4, PI*1/4);
+          val as2 = new ArcSpline(Vec3(.5, .5, upperCircleHeight), upperRad, PI*1/4, PI*5/4);
+          (as1.sampled(s1Sampled.length/2).dropRight(1) ++ as2.sampled((s1Sampled.length+1)/2+1)).toArray
         }}, cp5.arcHeight, cp5.circleRad);
 
 
